@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request
-from cnvsweb_scraper_fixed import CNVSWebScraper
+from cnvsweb_scraper import CNVSWebScraper
 import threading
 import time
 import os
