@@ -413,7 +413,7 @@ class CNVSWebScraper:
             traceback.print_exc()
             return None
     
-    def get_player_url(self, movie_url):
+    def get_player_url(self, movie_url, save_debug_html=False):
         """Extrai a URL do player do filme"""
         self.keep_alive()
         
@@ -421,28 +421,67 @@ class CNVSWebScraper:
             if not movie_url.startswith('http'):
                 movie_url = urljoin(self.base_url, movie_url)
             
+            print(f"       🌐 Acessando: {movie_url}")
             response = self.session.get(movie_url)
             self.last_activity = time.time()
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # MÉTODO 1: Encontrar o botão "ASSISTIR" e seguir o href
-            # Procura por botão com classe "btn free" que contém "ASSISTIR"
+            # Opção de salvar HTML para debug
+            if save_debug_html:
+                filename = f"debug_{movie_url.split('/')[-1]}.html"
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(soup.prettify())
+                print(f"       💾 HTML salvo em: {filename}")
+            
+            # DEBUG: Mostra todos os botões/links encontrados
+            all_buttons = soup.find_all('a', class_=lambda x: x and 'btn' in str(x))
+            print(f"       📊 Encontrados {len(all_buttons)} botões na página")
+            
+            for i, btn in enumerate(all_buttons[:5], 1):  # Primeiros 5
+                text = btn.get_text(strip=True)[:30]
+                href = btn.get('href', 'N/A')
+                classes = btn.get('class', [])
+                print(f"       🔘 Botão {i}: '{text}' | href='{href}' | class={classes}")
+            
+            # MÉTODO 1: Procura botão "ASSISTIR" - várias tentativas
+            assistir_btn = None
+            
+            # Tentativa 1: classe "btn free"
             assistir_btn = soup.find('a', class_='btn free')
+            if assistir_btn:
+                print(f"       ✓ Encontrado com classe 'btn free'")
+            
+            # Tentativa 2: classe contendo "btn" e texto "ASSISTIR"
+            if not assistir_btn:
+                all_links = soup.find_all('a')
+                for link in all_links:
+                    text = link.get_text(strip=True).upper()
+                    if 'ASSISTIR' in text or 'PLAY' in text:
+                        assistir_btn = link
+                        print(f"       ✓ Encontrado por texto: '{link.get_text(strip=True)}'")
+                        break
+            
+            # Tentativa 3: procura por data-tippy-content com "Assistir"
+            if not assistir_btn:
+                assistir_btn = soup.find('a', attrs={'data-tippy-content': lambda x: x and 'Assistir' in x})
+                if assistir_btn:
+                    print(f"       ✓ Encontrado por data-tippy-content")
             
             if assistir_btn:
                 href = assistir_btn.get('href', '')
-                print(f"       🔍 Botão ASSISTIR encontrado com href: {href}")
+                print(f"       🎯 Botão ASSISTIR encontrado com href: '{href}'")
                 
                 # Se o href começa com #, é uma âncora para um elemento na mesma página
                 if href.startswith('#'):
                     element_id = href[1:]  # Remove o #
-                    print(f"       🔍 Procurando elemento com ID: {element_id}")
+                    print(f"       🔍 Procurando elemento com ID: '{element_id}'")
                     
                     # Procura o elemento com esse ID
                     player_element = soup.find(id=element_id)
                     
                     if player_element:
                         print(f"       ✓ Elemento encontrado: {element_id}")
+                        print(f"       📝 Tag: {player_element.name}, Classes: {player_element.get('class', [])}")
                         
                         # Procura por iframe dentro desse elemento
                         iframe = player_element.find('iframe')
@@ -451,18 +490,36 @@ class CNVSWebScraper:
                             src = iframe.get('src', '')
                             if src:
                                 player_url = src if src.startswith('http') else urljoin(self.base_url, src)
-                                print(f"       ✓ iframe encontrado no elemento {element_id}")
+                                print(f"       ✓ iframe encontrado: {player_url[:80]}...")
                                 return player_url
+                            else:
+                                print(f"       ⚠ iframe sem src")
+                        else:
+                            print(f"       ⚠ Nenhum iframe dentro do elemento {element_id}")
+                            
+                            # Debug: mostra o conteúdo do elemento
+                            print(f"       📝 Conteúdo do elemento (primeiros 200 chars):")
+                            print(f"           {str(player_element)[:200]}")
                         
                         # Se não encontrou iframe, procura por data-src ou data-player
-                        for attr in ['data-src', 'data-player', 'data-url']:
-                            data_src = player_element.get(attr) or (player_element.find(attrs={attr: True}) and player_element.find(attrs={attr: True}).get(attr))
-                            if data_src:
-                                player_url = data_src if data_src.startswith('http') else urljoin(self.base_url, data_src)
-                                print(f"       ✓ URL encontrada em {attr}")
-                                return player_url
+                        for attr in ['data-src', 'data-player', 'data-url', 'data-iframe']:
+                            elem_with_attr = player_element.find(attrs={attr: True})
+                            if elem_with_attr:
+                                data_src = elem_with_attr.get(attr)
+                                if data_src:
+                                    player_url = data_src if data_src.startswith('http') else urljoin(self.base_url, data_src)
+                                    print(f"       ✓ URL encontrada em {attr}: {player_url[:80]}...")
+                                    return player_url
                     else:
                         print(f"       ⚠ Elemento com ID '{element_id}' não encontrado")
+                        
+                        # Debug: lista todos os IDs disponíveis
+                        all_ids = [elem.get('id') for elem in soup.find_all(id=True)]
+                        print(f"       📝 IDs disponíveis na página: {all_ids[:10]}")
+                else:
+                    print(f"       ⚠ href não começa com # : '{href}'")
+            else:
+                print(f"       ⚠ Botão ASSISTIR não encontrado")
             
             # MÉTODO 2: Procura por iframes na página com "play" no src
             print(f"       🔍 Procurando iframes na página...")
@@ -471,7 +528,8 @@ class CNVSWebScraper:
             
             for idx, iframe in enumerate(iframes):
                 src = iframe.get('src', '')
-                print(f"       🔍 iframe {idx+1}: {src[:60] if src else 'sem src'}...")
+                iframe_id = iframe.get('id', 'N/A')
+                print(f"       🔍 iframe {idx+1}: id='{iframe_id}' src='{src[:60] if src else 'sem src'}...'")
                 
                 if src and ('play' in src.lower() or 'stream' in src.lower()):
                     player_url = src if src.startswith('http') else urljoin(self.base_url, src)
