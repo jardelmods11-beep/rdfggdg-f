@@ -22,41 +22,79 @@ class CNVSWebScraper:
     def login(self):
         """Faz login no site usando o token"""
         try:
-            login_url = f"{self.base_url}/login"
+            login_page_url = f"{self.base_url}/login"
+            login_ajax_url = f"{self.base_url}/ajax/login.php"
             
             # Primeiro GET para pegar cookies
             print("🔑 Acessando página de login...")
-            self.session.get(login_url)
+            response = self.session.get(login_page_url)
             time.sleep(1)
             
-            # POST com o token
+            # POST para o endpoint AJAX com o token
             payload = {
-                'token': self.token
+                'uid': None,
+                'email': None,
+                'token': self.token,
+                'emailVerified': None,
+                'displayName': None,
+                'photoURL': None,
+                'phoneNumber': None,
+                'referer': ''
+            }
+            
+            # Headers específicos para o AJAX
+            ajax_headers = {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Origin': self.base_url,
+                'Referer': login_page_url
             }
             
             print(f"🔑 Fazendo login com token: {self.token}")
-            response = self.session.post(login_url, data=payload, allow_redirects=True)
+            response = self.session.post(
+                login_ajax_url, 
+                data=payload, 
+                headers=ajax_headers,
+                allow_redirects=False
+            )
             
-            # Verifica se foi redirecionado para a página principal
+            print(f"📊 Status do login: {response.status_code}")
+            
+            # Verifica a resposta JSON
             if response.status_code == 200:
-                # Verifica se está logado procurando elementos da página logada
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                # Verifica se existe o menu de perfil (indicador de login bem-sucedido)
-                profile_menu = soup.find('ul', class_='profile')
-                
-                if profile_menu or '/logout' in response.text:
-                    print("✓ Login realizado com sucesso")
-                    self.last_activity = time.time()
-                    self.logged_in = True
-                    return True
-                else:
-                    print(f"⚠ Login pode ter falhado - mas continuando...")
-                    # Mesmo assim, considera logado se redirecionou
-                    self.logged_in = True
-                    return True
+                try:
+                    data = response.json()
+                    print(f"📦 Resposta JSON: {data}")
+                    
+                    if data.get('status') == 'success':
+                        redirect_url = data.get('redirect', self.base_url)
+                        print(f"✓ Login realizado com sucesso!")
+                        print(f"↪️  Redirecionando para: {redirect_url}")
+                        
+                        # Acessa a página de redirecionamento para completar o login
+                        response = self.session.get(redirect_url)
+                        
+                        # Verifica se está realmente logado
+                        if response.status_code == 200 and '/login' not in response.url:
+                            print("✓ Login confirmado - sessão ativa")
+                            self.last_activity = time.time()
+                            self.logged_in = True
+                            return True
+                        else:
+                            print(f"⚠ Redirecionamento falhou")
+                            return False
+                    else:
+                        error_msg = data.get('message', 'Erro desconhecido')
+                        print(f"✗ Erro no login: {error_msg}")
+                        return False
+                        
+                except ValueError as e:
+                    print(f"✗ Resposta não é JSON válido: {response.text[:200]}")
+                    return False
             else:
                 print(f"✗ Erro no login: Status {response.status_code}")
+                print(f"📝 Resposta: {response.text[:200]}")
                 return False
                 
         except Exception as e:
