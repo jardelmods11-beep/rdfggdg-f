@@ -424,42 +424,75 @@ class CNVSWebScraper:
             response = self.session.get(movie_url)
             self.last_activity = time.time()
             soup = BeautifulSoup(response.content, 'html.parser')
-            html = response.text
             
-            # MÉTODO 1: Procura por iframe com src contendo "play"
+            # MÉTODO 1: Encontrar o botão "ASSISTIR" e seguir o href
+            # Procura por botão com classe "btn free" que contém "ASSISTIR"
+            assistir_btn = soup.find('a', class_='btn free')
+            
+            if assistir_btn:
+                href = assistir_btn.get('href', '')
+                print(f"       🔍 Botão ASSISTIR encontrado com href: {href}")
+                
+                # Se o href começa com #, é uma âncora para um elemento na mesma página
+                if href.startswith('#'):
+                    element_id = href[1:]  # Remove o #
+                    print(f"       🔍 Procurando elemento com ID: {element_id}")
+                    
+                    # Procura o elemento com esse ID
+                    player_element = soup.find(id=element_id)
+                    
+                    if player_element:
+                        print(f"       ✓ Elemento encontrado: {element_id}")
+                        
+                        # Procura por iframe dentro desse elemento
+                        iframe = player_element.find('iframe')
+                        
+                        if iframe:
+                            src = iframe.get('src', '')
+                            if src:
+                                player_url = src if src.startswith('http') else urljoin(self.base_url, src)
+                                print(f"       ✓ iframe encontrado no elemento {element_id}")
+                                return player_url
+                        
+                        # Se não encontrou iframe, procura por data-src ou data-player
+                        for attr in ['data-src', 'data-player', 'data-url']:
+                            data_src = player_element.get(attr) or (player_element.find(attrs={attr: True}) and player_element.find(attrs={attr: True}).get(attr))
+                            if data_src:
+                                player_url = data_src if data_src.startswith('http') else urljoin(self.base_url, data_src)
+                                print(f"       ✓ URL encontrada em {attr}")
+                                return player_url
+                    else:
+                        print(f"       ⚠ Elemento com ID '{element_id}' não encontrado")
+            
+            # MÉTODO 2: Procura por iframes na página com "play" no src
+            print(f"       🔍 Procurando iframes na página...")
             iframes = soup.find_all('iframe')
-            for iframe in iframes:
+            print(f"       📊 Encontrados {len(iframes)} iframes")
+            
+            for idx, iframe in enumerate(iframes):
                 src = iframe.get('src', '')
-                if src and 'play' in src.lower():
+                print(f"       🔍 iframe {idx+1}: {src[:60] if src else 'sem src'}...")
+                
+                if src and ('play' in src.lower() or 'stream' in src.lower()):
                     player_url = src if src.startswith('http') else urljoin(self.base_url, src)
+                    print(f"       ✓ iframe com 'play' ou 'stream' encontrado")
                     return player_url
             
-            # MÉTODO 2: Qualquer iframe
+            # MÉTODO 3: Pega o primeiro iframe disponível
             if iframes and iframes[0].get('src'):
                 player_url = iframes[0]['src']
                 if not player_url.startswith('http'):
                     player_url = urljoin(self.base_url, player_url)
+                print(f"       ⚠ Usando primeiro iframe disponível")
                 return player_url
             
-            # MÉTODO 3: Procura no JavaScript por URLs de player
-            patterns = [
-                r'https?://[^\s"\']*playcnvs[^\s"\']*',
-                r'https?://[^\s"\']*player[^\s"\']*',
-                r'"playerUrl"\s*:\s*"([^"]+)"',
-                r"'playerUrl'\s*:\s*'([^']+)'",
-            ]
-            
-            for pattern in patterns:
-                matches = re.findall(pattern, html, re.IGNORECASE)
-                if matches:
-                    url = matches[0].strip('";,\'')
-                    if 'play' in url.lower() or 'stream' in url.lower():
-                        return url
-            
+            print(f"       ✗ Nenhum player encontrado")
             return None
             
         except Exception as e:
             print(f"       ✗ Erro ao extrair player URL: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def get_video_mp4_url(self, player_url):
@@ -467,57 +500,94 @@ class CNVSWebScraper:
         self.keep_alive()
         
         try:
+            print(f"       🔍 Acessando player: {player_url[:60]}...")
             response = self.session.get(player_url)
             self.last_activity = time.time()
             html = response.text
             soup = BeautifulSoup(response.content, 'html.parser')
             
             # MÉTODO 1: Procura tag <video> com src
-            video_tag = soup.find('video')
-            if video_tag:
+            video_tags = soup.find_all('video')
+            print(f"       📊 Encontradas {len(video_tags)} tags <video>")
+            
+            for idx, video_tag in enumerate(video_tags):
                 src = video_tag.get('src')
                 if src and '.mp4' in src:
+                    print(f"       ✓ URL encontrada em <video> tag #{idx+1}")
                     return src
                 
                 # Procura <source> dentro de <video>
-                source_tag = video_tag.find('source')
-                if source_tag:
+                source_tags = video_tag.find_all('source')
+                for source_tag in source_tags:
                     src = source_tag.get('src')
                     if src:
+                        print(f"       ✓ URL encontrada em <source> dentro de <video> #{idx+1}")
                         return src
             
-            # MÉTODO 2: Regex para URLs .mp4 no HTML/JS
+            # MÉTODO 2: Regex mais específico para URLs .mp4 com o padrão do site
+            # Padrão: https://server-amz.playmycnvs.com/...mp4?cnvs_token=...
             mp4_patterns = [
-                r'https?://[^\s<>"\']+\.mp4[^\s<>"\']*',  # URL completa .mp4
-                r'"file"\s*:\s*"([^"]+\.mp4[^"]*)"',      # file: "url.mp4"
-                r'"src"\s*:\s*"([^"]+\.mp4[^"]*)"',       # src: "url.mp4"
-                r'src\s*=\s*"([^"]+\.mp4[^"]*)"',         # src="url.mp4"
-                r"src\s*=\s*'([^']+\.mp4[^']*)'",         # src='url.mp4'
-                r'"video"\s*:\s*"([^"]+\.mp4[^"]*)"',     # video: "url.mp4"
+                r'https?://server[^"\s]*?\.mp4[^"\s]*',                    # server...mp4
+                r'https?://[^"\s]*playmycnvs[^"\s]*?\.mp4[^"\s]*',         # playmycnvs...mp4
+                r'src["\s]*[:=]["\s]*([^"\s]+\.mp4[^"\s]*)',               # src="...mp4"
+                r'"file"["\s]*:["\s]*"([^"]+\.mp4[^"]*)"',                 # "file":"...mp4"
+                r'"src"["\s]*:["\s]*"([^"]+\.mp4[^"]*)"',                  # "src":"...mp4"
+                r'https?://[^"\s<>]+\.mp4[^\s<>"\']*',                     # qualquer URL .mp4
             ]
             
-            for pattern in mp4_patterns:
+            for idx, pattern in enumerate(mp4_patterns):
                 matches = re.findall(pattern, html, re.IGNORECASE)
                 if matches:
-                    video_url = matches[0].strip('"\'')
-                    return video_url
+                    # Pega a primeira URL encontrada
+                    video_url = matches[0]
+                    
+                    # Se for um grupo de captura, usa o grupo
+                    if isinstance(video_url, tuple):
+                        video_url = video_url[0]
+                    
+                    # Remove aspas e espaços
+                    video_url = video_url.strip('"\'\\').strip()
+                    
+                    # Verifica se é uma URL válida
+                    if video_url.startswith('http') and '.mp4' in video_url:
+                        print(f"       ✓ URL encontrada com pattern #{idx+1}: {video_url[:80]}...")
+                        return video_url
             
-            # MÉTODO 3: Procura por servidor de vídeo específico
-            server_patterns = [
-                r'https?://server[^\s<>"\']+\.mp4[^\s<>"\']*',
-                r'https?://[^\s<>"\']*playmycnvs[^\s<>"\']+\.mp4[^\s<>"\']*',
-            ]
+            # MÉTODO 3: Procura por divs com classe específica do player (jw-media, jw-video, etc)
+            player_divs = soup.find_all(['div', 'video'], class_=re.compile(r'jw-|player|video', re.I))
+            print(f"       📊 Encontrados {len(player_divs)} elementos de player")
             
-            for pattern in server_patterns:
-                matches = re.findall(pattern, html, re.IGNORECASE)
-                if matches:
-                    video_url = matches[0].strip('"\'')
-                    return video_url
+            for div in player_divs:
+                # Procura por data-src ou outros atributos
+                for attr in ['data-src', 'data-url', 'data-file', 'src']:
+                    url = div.get(attr)
+                    if url and '.mp4' in url:
+                        print(f"       ✓ URL encontrada em {attr} de elemento player")
+                        return url
+            
+            # MÉTODO 4: Busca agressiva no HTML por qualquer string que pareça uma URL de vídeo
+            print(f"       🔍 Fazendo busca agressiva no HTML...")
+            all_urls = re.findall(r'https?://[^\s<>"\']+', html)
+            
+            for url in all_urls:
+                url = url.strip('"\'\\,;')
+                if '.mp4' in url and ('server' in url.lower() or 'play' in url.lower() or 'cnvs' in url.lower()):
+                    print(f"       ✓ URL encontrada em busca agressiva")
+                    return url
+            
+            print(f"       ✗ Nenhuma URL de vídeo encontrada")
+            print(f"       📝 Tamanho do HTML: {len(html)} caracteres")
+            
+            # Debug: salva o HTML para análise
+            if len(html) < 10000:  # Só para HTMLs pequenos
+                print(f"       📝 HTML snippet: {html[:500]}...")
             
             return None
             
         except Exception as e:
             print(f"       ✗ Erro ao extrair vídeo MP4: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 
