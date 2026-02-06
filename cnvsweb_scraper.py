@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 import json
 
 class CNVSWebScraper:
@@ -51,9 +51,7 @@ class CNVSWebScraper:
                     self.logged_in = True
                     return True
                 else:
-                    print(f"✗ Login pode ter fallhado - verificando cookies...")
-                    # Mostra os cookies para debug
-                    print(f"Cookies: {self.session.cookies.get_dict()}")
+                    print(f"⚠ Login pode ter falhado - mas continuando...")
                     # Mesmo assim, considera logado se redirecionou
                     self.logged_in = True
                     return True
@@ -63,6 +61,8 @@ class CNVSWebScraper:
                 
         except Exception as e:
             print(f"✗ Erro no login: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def keep_alive(self):
@@ -88,33 +88,26 @@ class CNVSWebScraper:
         try:
             print("📡 Acessando página principal...")
             response = self.session.get(self.base_url)
+            self.last_activity = time.time()
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # MÉTODO 1: Procura pela seção "Mais Visto do Dia" - busca exata
-            most_watched_section = soup.find('h5', string=lambda text: text and 'Mais Visto do Dia' in text)
+            # Procura pela seção "Mais Visto do Dia"
+            most_watched_section = None
             
-            if not most_watched_section:
-                # MÉTODO 2: Busca case-insensitive
-                most_watched_section = soup.find('h5', string=re.compile(r'mais\s+visto\s+do\s+dia', re.IGNORECASE))
-            
-            if not most_watched_section:
-                # MÉTODO 3: Busca por qualquer h5 com "Mais Visto"
-                all_h5 = soup.find_all('h5')
-                for h5 in all_h5:
-                    if h5.text and 'Mais Visto' in h5.text:
-                        most_watched_section = h5
-                        break
+            # MÉTODO 1: Procura por h5 com texto exato
+            all_h5 = soup.find_all('h5')
+            for h5 in all_h5:
+                if h5.text and 'Mais Visto' in h5.text:
+                    most_watched_section = h5
+                    print(f"✓ Seção encontrada: '{h5.text.strip()}'")
+                    break
             
             if not most_watched_section:
                 print("✗ Seção 'Mais Visto do Dia' não encontrada")
-                print(f"🔍 Debug: Procurando todas as seções h5...")
-                all_h5 = soup.find_all('h5')
-                print(f"Seções h5 encontradas: {[h5.text.strip() for h5 in all_h5]}")
+                print(f"🔍 Seções encontradas: {[h5.text.strip() for h5 in all_h5]}")
                 return []
             
-            print(f"✓ Seção encontrada: '{most_watched_section.text.strip()}'")
-            
-            # Pega o container pai (div.col-12)
+            # Pega o container pai
             container = most_watched_section.find_parent('div', class_='col-12')
             
             if not container:
@@ -124,11 +117,12 @@ class CNVSWebScraper:
             print("✓ Container encontrado")
             
             movies = []
+            # Procura por todos os slides
             items = container.find_all('div', class_='swiper-slide')
             
             if not items:
-                # Tenta método alternativo
-                items = container.find_all('div', class_='item poster')
+                # Método alternativo
+                items = container.find_all('div', class_='item')
             
             print(f"📊 Encontrados {len(items)} itens na seção")
             
@@ -138,7 +132,6 @@ class CNVSWebScraper:
                     info_div = item.find('div', class_='info')
                     
                     if not info_div:
-                        print(f"  ⚠ Item {idx}: div.info não encontrada")
                         continue
                     
                     # Título
@@ -196,11 +189,11 @@ class CNVSWebScraper:
                             movie_data['player_url'] = player_url
                             
                             if player_url:
-                                print(f"     ✓ Player encontrado: {player_url[:60]}...")
+                                print(f"     ✓ Player: {player_url[:60]}...")
                                 video_url = self.get_video_mp4_url(player_url)
                                 movie_data['video_url'] = video_url
                                 if video_url:
-                                    print(f"     ✓ Vídeo extraído: {video_url[:80]}...")
+                                    print(f"     ✓ Vídeo: {video_url[:80]}...")
                                 else:
                                     print(f"     ⚠ URL do vídeo não encontrada")
                             else:
@@ -211,14 +204,14 @@ class CNVSWebScraper:
                     movies.append(movie_data)
                     
                     # Delay para não sobrecarregar o servidor
-                    if get_video_urls:
-                        time.sleep(0.5)
+                    if get_video_urls and idx < len(items):
+                        time.sleep(0.3)
                     
                 except Exception as e:
                     print(f"  ✗ Erro ao processar item {idx}: {e}")
                     continue
             
-            print(f"\n✓ Encontrados {len(movies)} filmes mais assistidos do dia")
+            print(f"\n✓ Total: {len(movies)} filmes extraídos")
             return movies
             
         except Exception as e:
@@ -237,6 +230,7 @@ class CNVSWebScraper:
             
             print(f"🔍 Buscando: {query}")
             response = self.session.get(search_url, params=params)
+            self.last_activity = time.time()
             soup = BeautifulSoup(response.content, 'html.parser')
             
             movies = []
@@ -293,7 +287,7 @@ class CNVSWebScraper:
                     print(f"  {idx}. {title}")
                     
                     if get_video_urls and watch_link:
-                        print(f"     🎬 Extraindo vídeo de: {title}")
+                        print(f"     🎬 Extraindo vídeo...")
                         try:
                             player_url = self.get_player_url(watch_link)
                             movie_data['player_url'] = player_url
@@ -312,14 +306,14 @@ class CNVSWebScraper:
                     
                     movies.append(movie_data)
                     
-                    if get_video_urls:
-                        time.sleep(0.5)
+                    if get_video_urls and idx < len(items):
+                        time.sleep(0.3)
                     
                 except Exception as e:
                     print(f"  ✗ Erro ao processar item {idx}: {e}")
                     continue
             
-            print(f"\n✓ Encontrados {len(movies)} resultados para '{query}'")
+            print(f"\n✓ Total: {len(movies)} resultados para '{query}'")
             return movies
             
         except Exception as e:
@@ -327,6 +321,97 @@ class CNVSWebScraper:
             import traceback
             traceback.print_exc()
             return []
+    
+    def get_movie_details(self, movie_url):
+        """Extrai TODAS as informações detalhadas de um filme"""
+        self.keep_alive()
+        
+        try:
+            if not movie_url.startswith('http'):
+                movie_url = urljoin(self.base_url, movie_url)
+            
+            print(f"📄 Acessando página do filme: {movie_url}")
+            response = self.session.get(movie_url)
+            self.last_activity = time.time()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            movie_info = {
+                'title': '',
+                'original_title': '',
+                'year': '',
+                'duration': '',
+                'genres': [],
+                'imdb_rating': '',
+                'synopsis': '',
+                'director': '',
+                'cast': [],
+                'trailer_url': '',
+                'image_url': '',
+                'backdrop_url': '',
+                'watch_link': movie_url,
+                'player_url': None,
+                'video_url': None
+            }
+            
+            # Título
+            title_tag = soup.find('h1') or soup.find('h2', class_='title')
+            if title_tag:
+                movie_info['title'] = title_tag.text.strip()
+            
+            # Imagem principal
+            poster_div = soup.find('div', class_='poster') or soup.find('img', class_='poster')
+            if poster_div:
+                if poster_div.name == 'img':
+                    movie_info['image_url'] = poster_div.get('src', '')
+                else:
+                    bg_style = poster_div.get('style', '')
+                    image_match = re.search(r'url\((.*?)\)', bg_style)
+                    if image_match:
+                        movie_info['image_url'] = image_match.group(1).strip('"\'')
+            
+            # Sinopse
+            synopsis_div = soup.find('div', class_='synopsis') or soup.find('p', class_='overview')
+            if synopsis_div:
+                movie_info['synopsis'] = synopsis_div.text.strip()
+            
+            # Tags (ano, duração, IMDb)
+            tags = soup.find('p', class_='tags') or soup.find('div', class_='tags')
+            if tags:
+                spans = tags.find_all('span')
+                for span in spans:
+                    text = span.text.strip()
+                    if 'Min' in text or 'Temporadas' in text:
+                        movie_info['duration'] = text
+                    elif text.isdigit() and len(text) == 4:
+                        movie_info['year'] = text
+                    elif 'IMDb' in text:
+                        movie_info['imdb_rating'] = text.replace('IMDb', '').strip()
+            
+            # Gêneros
+            genres_div = soup.find('div', class_='genres')
+            if genres_div:
+                genre_links = genres_div.find_all('a')
+                movie_info['genres'] = [g.text.strip() for g in genre_links]
+            
+            # Player e vídeo
+            print("     🎬 Extraindo player e vídeo...")
+            player_url = self.get_player_url(movie_url)
+            movie_info['player_url'] = player_url
+            
+            if player_url:
+                print(f"     ✓ Player: {player_url}")
+                video_url = self.get_video_mp4_url(player_url)
+                movie_info['video_url'] = video_url
+                if video_url:
+                    print(f"     ✓ Vídeo MP4 extraído")
+            
+            return movie_info
+            
+        except Exception as e:
+            print(f"✗ Erro ao obter detalhes do filme: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def get_player_url(self, movie_url):
         """Extrai a URL do player do filme"""
@@ -336,9 +421,10 @@ class CNVSWebScraper:
             if not movie_url.startswith('http'):
                 movie_url = urljoin(self.base_url, movie_url)
             
-            print(f"       🔗 Acessando: {movie_url}")
             response = self.session.get(movie_url)
+            self.last_activity = time.time()
             soup = BeautifulSoup(response.content, 'html.parser')
+            html = response.text
             
             # MÉTODO 1: Procura por iframe com src contendo "play"
             iframes = soup.find_all('iframe')
@@ -346,47 +432,30 @@ class CNVSWebScraper:
                 src = iframe.get('src', '')
                 if src and 'play' in src.lower():
                     player_url = src if src.startswith('http') else urljoin(self.base_url, src)
-                    print(f"       ✓ Player encontrado via iframe: {player_url}")
                     return player_url
             
-            # MÉTODO 2: Procura por qualquer iframe
+            # MÉTODO 2: Qualquer iframe
             if iframes and iframes[0].get('src'):
                 player_url = iframes[0]['src']
                 if not player_url.startswith('http'):
                     player_url = urljoin(self.base_url, player_url)
-                print(f"       ✓ Player encontrado (iframe): {player_url}")
                 return player_url
             
-            # MÉTODO 3: Procura por botão com link de player
-            watch_buttons = soup.find_all('a', class_='btn')
-            for btn in watch_buttons:
-                href = btn.get('href', '')
-                if href and ('player' in href.lower() or 'play' in href.lower()):
-                    player_url = href if href.startswith('http') else urljoin(self.base_url, href)
-                    print(f"       ✓ Player encontrado (botão): {player_url}")
-                    return player_url
+            # MÉTODO 3: Procura no JavaScript por URLs de player
+            patterns = [
+                r'https?://[^\s"\']*playcnvs[^\s"\']*',
+                r'https?://[^\s"\']*player[^\s"\']*',
+                r'"playerUrl"\s*:\s*"([^"]+)"',
+                r"'playerUrl'\s*:\s*'([^']+)'",
+            ]
             
-            # MÉTODO 4: Procura no JavaScript
-            scripts = soup.find_all('script')
-            for script in scripts:
-                if script.string:
-                    # Padrões de URL do player
-                    patterns = [
-                        r'https?://[^\s"\']*playcnvs[^\s"\']*',
-                        r'https?://[^\s"\']*player[^\s"\']*',
-                        r'"url"\s*:\s*"([^"]+)"',
-                        r"'url'\s*:\s*'([^']+)'",
-                    ]
-                    for pattern in patterns:
-                        matches = re.findall(pattern, script.string, re.IGNORECASE)
-                        if matches:
-                            url = matches[0]
-                            if 'play' in url.lower() or 'stream' in url.lower():
-                                player_url = url.strip('";,\'')
-                                print(f"       ✓ Player encontrado (JavaScript): {player_url}")
-                                return player_url
+            for pattern in patterns:
+                matches = re.findall(pattern, html, re.IGNORECASE)
+                if matches:
+                    url = matches[0].strip('";,\'')
+                    if 'play' in url.lower() or 'stream' in url.lower():
+                        return url
             
-            print(f"       ✗ URL do player não encontrado")
             return None
             
         except Exception as e:
@@ -398,8 +467,8 @@ class CNVSWebScraper:
         self.keep_alive()
         
         try:
-            print(f"       🎥 Acessando player: {player_url}")
             response = self.session.get(player_url)
+            self.last_activity = time.time()
             html = response.text
             soup = BeautifulSoup(response.content, 'html.parser')
             
@@ -407,8 +476,7 @@ class CNVSWebScraper:
             video_tag = soup.find('video')
             if video_tag:
                 src = video_tag.get('src')
-                if src and src.endswith('.mp4'):
-                    print(f"       ✓ Vídeo encontrado em <video>")
+                if src and '.mp4' in src:
                     return src
                 
                 # Procura <source> dentro de <video>
@@ -416,7 +484,6 @@ class CNVSWebScraper:
                 if source_tag:
                     src = source_tag.get('src')
                     if src:
-                        print(f"       ✓ Vídeo encontrado em <source>")
                         return src
             
             # MÉTODO 2: Regex para URLs .mp4 no HTML/JS
@@ -432,13 +499,10 @@ class CNVSWebScraper:
             for pattern in mp4_patterns:
                 matches = re.findall(pattern, html, re.IGNORECASE)
                 if matches:
-                    video_url = matches[0]
-                    # Remove caracteres extras
-                    video_url = video_url.strip('"\'')
-                    print(f"       ✓ Vídeo encontrado (regex): {video_url[:80]}...")
+                    video_url = matches[0].strip('"\'')
                     return video_url
             
-            # MÉTODO 3: Procura por servidor de vídeo comum
+            # MÉTODO 3: Procura por servidor de vídeo específico
             server_patterns = [
                 r'https?://server[^\s<>"\']+\.mp4[^\s<>"\']*',
                 r'https?://[^\s<>"\']*playmycnvs[^\s<>"\']+\.mp4[^\s<>"\']*',
@@ -448,12 +512,8 @@ class CNVSWebScraper:
                 matches = re.findall(pattern, html, re.IGNORECASE)
                 if matches:
                     video_url = matches[0].strip('"\'')
-                    print(f"       ✓ Vídeo encontrado (servidor): {video_url[:80]}...")
                     return video_url
             
-            print(f"       ✗ URL do vídeo MP4 não encontrada")
-            # Debug: mostra um trecho do HTML
-            print(f"       🔍 Debug HTML (primeiros 500 chars): {html[:500]}")
             return None
             
         except Exception as e:
@@ -466,13 +526,12 @@ def main():
     TOKEN = "2E9RCU0B"
     
     print("\n" + "="*70)
-    print("CNVSWeb Scraper - Versão Corrigida")
+    print("CNVSWeb Scraper - Versão Corrigida Final")
     print("="*70)
     
-    # Inicializa o scraper
     scraper = CNVSWebScraper(TOKEN)
     
-    # Faz login
+    # Login
     print("\n" + "="*70)
     print("ETAPA 1: LOGIN")
     print("="*70 + "\n")
@@ -481,20 +540,18 @@ def main():
         print("\n✗ Falha no login. Verifique o token.")
         return
     
-    # Pega filmes mais assistidos
+    # Filmes mais assistidos
     print("\n" + "="*70)
-    print("ETAPA 2: FILMES MAIS ASSISTIDOS")
+    print("ETAPA 2: FILMES MAIS ASSISTIDOS DO DIA")
     print("="*70 + "\n")
     
     most_watched = scraper.get_most_watched_today(get_video_urls=True)
     
-    # Mostra resultados
     if most_watched:
         print("\n" + "="*70)
-        print(f"RESULTADOS: {len(most_watched)} FILMES ENCONTRADOS")
+        print(f"RESULTADOS: {len(most_watched)} FILMES")
         print("="*70)
         
-        # Mostra os 3 primeiros com detalhes
         for i, movie in enumerate(most_watched[:3], 1):
             print(f"\n🎬 {i}. {movie['title']}")
             print(f"   📅 Ano: {movie['year']}")
@@ -504,8 +561,6 @@ def main():
                 print(f"   🎮 Player: {movie['player_url'][:60]}...")
             if movie['video_url']:
                 print(f"   🎥 Vídeo: {movie['video_url'][:80]}...")
-    else:
-        print("\n⚠️ Nenhum filme encontrado")
     
     # Salva resultados
     output = {
@@ -514,11 +569,10 @@ def main():
         'movies': most_watched
     }
     
-    filename = 'cnvsweb_results.json'
-    with open(filename, 'w', encoding='utf-8') as f:
+    with open('cnvsweb_results.json', 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     
-    print(f"\n✓ Resultados salvos em {filename}")
+    print(f"\n✓ Resultados salvos em cnvsweb_results.json")
 
 
 if __name__ == "__main__":
