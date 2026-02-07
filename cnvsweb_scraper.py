@@ -119,8 +119,15 @@ class CNVSWebScraper:
             except Exception as e:
                 print(f"Erro ao atualizar sessão: {e}")
     
-    def get_most_watched_today(self, get_video_urls=True):
-        """Pega os filmes mais assistidos do dia"""
+    def get_most_watched_today(self, get_video_urls=True, max_episodes_per_series=5, organize_output=True):
+        """
+        Pega os filmes/séries mais assistidos do dia
+        
+        Args:
+            get_video_urls: Se True, extrai URLs dos vídeos
+            max_episodes_per_series: Máximo de episódios para extrair por série (0 = todos)
+            organize_output: Se True, retorna dados organizados em {movies: [], series: []}
+        """
         self.keep_alive()
         
         try:
@@ -206,8 +213,12 @@ class CNVSWebScraper:
                         if image_match:
                             image_url = image_match.group(1).strip('"\'')
                     
+                    # Detecta se é série ou filme
+                    is_series = 'Temporada' in duration_or_seasons
+                    
                     movie_data = {
                         'title': title,
+                        'type': 'series' if is_series else 'movie',  # NOVO: identifica o tipo
                         'watch_link': watch_link,
                         'duration_or_seasons': duration_or_seasons,
                         'year': year,
@@ -215,14 +226,11 @@ class CNVSWebScraper:
                         'image_url': image_url,
                         'player_url': None,
                         'video_url': None,
-                        'is_series': 'Temporada' in duration_or_seasons,
+                        'is_series': is_series,
                         'episodes': []
                     }
                     
                     print(f"  {idx}. {title}")
-                    
-                    # Detecta se é série ou filme
-                    is_series = 'Temporada' in duration_or_seasons
                     
                     # Se solicitado, extrai URLs do player e vídeo
                     if get_video_urls and watch_link:
@@ -230,6 +238,12 @@ class CNVSWebScraper:
                             print(f"     📺 Série detectada - extraindo episódios...")
                             try:
                                 episodes = self.get_series_episodes(watch_link)
+                                
+                                # NOVO: Limita número de episódios se configurado
+                                if max_episodes_per_series > 0:
+                                    episodes = episodes[:max_episodes_per_series]
+                                    print(f"     ⚠ Limitado a {max_episodes_per_series} episódios")
+                                
                                 movie_data['episodes'] = episodes
                                 
                                 # Opcionalmente, extrai URLs de vídeo dos episódios
@@ -276,6 +290,21 @@ class CNVSWebScraper:
                     continue
             
             print(f"\n✓ Total: {len(movies)} filmes extraídos")
+            
+            # NOVO: Retorna dados organizados se solicitado
+            if organize_output:
+                organized_data = {
+                    'movies': [m for m in movies if m['type'] == 'movie'],
+                    'series': [m for m in movies if m['type'] == 'series'],
+                    'summary': {
+                        'total': len(movies),
+                        'movies': len([m for m in movies if m['type'] == 'movie']),
+                        'series': len([m for m in movies if m['type'] == 'series'])
+                    }
+                }
+                print(f"📊 Organizado: {organized_data['summary']['movies']} filmes, {organized_data['summary']['series']} séries")
+                return organized_data
+            
             return movies
             
         except Exception as e:
@@ -284,8 +313,16 @@ class CNVSWebScraper:
             traceback.print_exc()
             return []
     
-    def search_movies(self, query, get_video_urls=True):
-        """Busca filmes no site"""
+    def search_movies(self, query, get_video_urls=True, max_episodes_per_series=5, organize_output=True):
+        """
+        Busca filmes/séries no site
+        
+        Args:
+            query: Termo de busca
+            get_video_urls: Se True, extrai URLs dos vídeos
+            max_episodes_per_series: Máximo de episódios para extrair por série (0 = todos)
+            organize_output: Se True, retorna dados organizados em {movies: [], series: []}
+        """
         self.keep_alive()
         
         try:
@@ -339,6 +376,7 @@ class CNVSWebScraper:
                     
                     movie_data = {
                         'title': title,
+                        'type': 'series' if 'Temporada' in duration_or_seasons else 'movie',  # NOVO
                         'watch_link': watch_link,
                         'duration_or_seasons': duration_or_seasons,
                         'year': year,
@@ -360,6 +398,12 @@ class CNVSWebScraper:
                             print(f"     📺 Série detectada - extraindo episódios...")
                             try:
                                 episodes = self.get_series_episodes(watch_link)
+                                
+                                # NOVO: Limita número de episódios se configurado
+                                if max_episodes_per_series > 0:
+                                    episodes = episodes[:max_episodes_per_series]
+                                    print(f"     ⚠ Limitado a {max_episodes_per_series} episódios")
+                                
                                 movie_data['episodes'] = episodes
                                 
                                 # Opcionalmente, extrai URLs de vídeo dos primeiros episódios
@@ -405,6 +449,21 @@ class CNVSWebScraper:
                     continue
             
             print(f"\n✓ Total: {len(movies)} resultados para '{query}'")
+            
+            # NOVO: Retorna dados organizados se solicitado
+            if organize_output:
+                organized_data = {
+                    'movies': [m for m in movies if m['type'] == 'movie'],
+                    'series': [m for m in movies if m['type'] == 'series'],
+                    'summary': {
+                        'total': len(movies),
+                        'movies': len([m for m in movies if m['type'] == 'movie']),
+                        'series': len([m for m in movies if m['type'] == 'series'])
+                    }
+                }
+                print(f"📊 Organizado: {organized_data['summary']['movies']} filmes, {organized_data['summary']['series']} séries")
+                return organized_data
+            
             return movies
             
         except Exception as e:
@@ -876,7 +935,7 @@ def main():
     TOKEN = "2E9RCU0B"
     
     print("\n" + "="*70)
-    print("CNVSWeb Scraper - Versão Corrigida Final")
+    print("CNVSWeb Scraper - Versão Completa com Organização")
     print("="*70)
     
     scraper = CNVSWebScraper(TOKEN)
@@ -895,29 +954,105 @@ def main():
     print("ETAPA 2: FILMES MAIS ASSISTIDOS DO DIA")
     print("="*70 + "\n")
     
-    most_watched = scraper.get_most_watched_today(get_video_urls=True)
+    # NOVO: Usa organização de dados
+    result = scraper.get_most_watched_today(
+        get_video_urls=True,
+        max_episodes_per_series=3,  # Limita a 3 episódios por série
+        organize_output=True  # Retorna organizado
+    )
     
-    if most_watched:
-        print("\n" + "="*70)
-        print(f"RESULTADOS: {len(most_watched)} FILMES")
-        print("="*70)
+    # Verifica se retornou dados organizados ou lista simples
+    if isinstance(result, dict) and 'movies' in result:
+        # Dados organizados
+        most_watched_movies = result['movies']
+        most_watched_series = result['series']
+        summary = result['summary']
         
-        for i, movie in enumerate(most_watched[:3], 1):
-            print(f"\n🎬 {i}. {movie['title']}")
+        print("\n" + "="*70)
+        print(f"RESULTADOS ORGANIZADOS")
+        print("="*70)
+        print(f"\n📊 Total: {summary['total']} itens")
+        print(f"   🎬 Filmes: {summary['movies']}")
+        print(f"   📺 Séries: {summary['series']}")
+        
+        # Mostra exemplos
+        if most_watched_movies:
+            print(f"\n{'='*70}")
+            print("EXEMPLO DE FILME:")
+            print('='*70)
+            movie = most_watched_movies[0]
+            print(f"\n🎬 {movie['title']}")
             print(f"   📅 Ano: {movie['year']}")
             print(f"   ⏱️  Duração: {movie['duration_or_seasons']}")
             print(f"   ⭐ IMDb: {movie['imdb']}")
-            if movie['player_url']:
+            if movie.get('player_url'):
                 print(f"   🎮 Player: {movie['player_url'][:60]}...")
-            if movie['video_url']:
+            if movie.get('video_url'):
                 print(f"   🎥 Vídeo: {movie['video_url'][:80]}...")
-    
-    # Salva resultados
-    output = {
-        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-        'total': len(most_watched),
-        'movies': most_watched
-    }
+        
+        if most_watched_series:
+            print(f"\n{'='*70}")
+            print("EXEMPLO DE SÉRIE:")
+            print('='*70)
+            series = most_watched_series[0]
+            print(f"\n📺 {series['title']}")
+            print(f"   📅 Ano: {series['year']}")
+            print(f"   📺 Temporadas: {series['duration_or_seasons']}")
+            print(f"   ⭐ IMDb: {series['imdb']}")
+            print(f"   📼 Episódios extraídos: {len(series['episodes'])}")
+            
+            if series['episodes']:
+                print(f"\n   Primeiro episódio:")
+                ep = series['episodes'][0]
+                print(f"   - {ep['title']}")
+                if ep.get('player_url'):
+                    print(f"     🎮 Player: {ep['player_url'][:60]}...")
+                if ep.get('video_url'):
+                    print(f"     🎥 Vídeo: {ep['video_url'][:80]}...")
+        
+        # Salva resultados organizados
+        output = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'summary': summary,
+            'movies': most_watched_movies,
+            'series': most_watched_series
+        }
+    else:
+        # Formato antigo (lista simples)
+        most_watched = result
+        
+        # Salva resultados organizados
+        output = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'summary': summary,
+            'movies': most_watched_movies,
+            'series': most_watched_series
+        }
+    else:
+        # Formato antigo (lista simples)
+        most_watched = result
+        
+        if most_watched:
+            print("\n" + "="*70)
+            print(f"RESULTADOS: {len(most_watched)} FILMES")
+            print("="*70)
+            
+            for i, movie in enumerate(most_watched[:3], 1):
+                print(f"\n🎬 {i}. {movie['title']}")
+                print(f"   📅 Ano: {movie['year']}")
+                print(f"   ⏱️  Duração: {movie['duration_or_seasons']}")
+                print(f"   ⭐ IMDb: {movie['imdb']}")
+                if movie.get('player_url'):
+                    print(f"   🎮 Player: {movie['player_url'][:60]}...")
+                if movie.get('video_url'):
+                    print(f"   🎥 Vídeo: {movie['video_url'][:80]}...")
+        
+        # Salva resultados
+        output = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'total': len(most_watched),
+            'movies': most_watched
+        }
     
     with open('cnvsweb_results.json', 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
