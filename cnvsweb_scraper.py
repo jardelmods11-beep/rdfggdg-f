@@ -509,8 +509,16 @@ class CNVSWebScraper:
                 href = assistir_btn.get('href', '')
                 print(f"       🎯 Botão ASSISTIR encontrado com href: '{href}'")
                 
-                # Se o href começa com #, é uma âncora para um elemento na mesma página
-                if href.startswith('#'):
+                # CASO 1: Se o href é uma URL completa (http://...), é o player direto!
+                if href.startswith('http'):
+                    if 'play' in href.lower() or 'stream' in href.lower():
+                        print(f"       ✓ URL do player encontrada diretamente!")
+                        return href
+                    else:
+                        print(f"       ⚠ URL não parece ser um player: {href}")
+                
+                # CASO 2: Se o href começa com #, é uma âncora para um elemento na mesma página
+                elif href.startswith('#'):
                     element_id = href[1:]  # Remove o #
                     print(f"       🔍 Procurando elemento com ID: '{element_id}'")
                     
@@ -554,8 +562,14 @@ class CNVSWebScraper:
                         # Debug: lista todos os IDs disponíveis
                         all_ids = [elem.get('id') for elem in soup.find_all(id=True)]
                         print(f"       📝 IDs disponíveis na página: {all_ids[:10]}")
+                
+                # CASO 3: Se for URL relativa, converte para absoluta
+                elif href.startswith('/'):
+                    full_url = urljoin(self.base_url, href)
+                    print(f"       ✓ URL relativa convertida: {full_url}")
+                    return full_url
                 else:
-                    print(f"       ⚠ href não começa com # : '{href}'")
+                    print(f"       ⚠ Formato de href não reconhecido: '{href}'")
             else:
                 print(f"       ⚠ Botão ASSISTIR não encontrado")
             
