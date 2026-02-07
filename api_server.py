@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request
-from cnvsweb_scraper_complete_fixed import CNVSWebScraper
+from cnvsweb_scraper import CNVSWebScraper
 import threading
 import time
 import os
@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # Token de acesso (pode vir de variável de ambiente)
-TOKEN = os.environ.get('TOKEN', '8KSVCCH0')
+TOKEN = os.environ.get('TOKEN', '2G4B7UIZ')
 
 # Inicializa o scraper globalmente
 scraper = None
