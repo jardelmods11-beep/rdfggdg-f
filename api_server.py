@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # Token de acesso (pode vir de variável de ambiente)
-TOKEN = os.environ.get('TOKEN', '3Z2UL2WY')
+TOKEN = os.environ.get('TOKEN', 'LRZOJID1')
 
 # Inicializa o scraper globalmente
 scraper = None
