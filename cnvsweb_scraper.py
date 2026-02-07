@@ -684,61 +684,87 @@ class CNVSWebScraper:
             
             all_episodes = []
             
-            for season in seasons:
-                season_id = season.get('value')
-                season_name = season.get_text(strip=True)
-                
-                print(f"       📂 Processando {season_name} (ID: {season_id})...")
-                
-                # Procura os episódios dessa temporada no HTML atual
-                # ou faz requisição AJAX se necessário
-                episodes_container = soup.find('div', id='episodes-view')
-                
-                if episodes_container:
-                    episodes = episodes_container.find_all('div', class_='ep')
-                    print(f"          📊 Encontrados {len(episodes)} episódios")
+            # NOTA: Por enquanto, vamos extrair apenas os episódios da temporada ATUAL
+            # (a que está visível na página)
+            # Para extrair TODAS as temporadas, seria necessário fazer requisições AJAX
+            # ou usar Selenium
+            
+            episodes_container = soup.find('div', id='episodes-view')
+            
+            if not episodes_container:
+                print(f"       ⚠ Container de episódios não encontrado")
+                return []
+            
+            # Encontra todos os episódios
+            episodes = episodes_container.find_all('div', class_='ep')
+            print(f"       📊 Encontrados {len(episodes)} episódios na temporada atual")
+            
+            # Identifica qual temporada está selecionada
+            selected_season = seasons_select.find('option', selected=True)
+            season_name = selected_season.get_text(strip=True) if selected_season else "Temporada 1"
+            season_id = selected_season.get('value') if selected_season else "unknown"
+            
+            for idx, ep in enumerate(episodes, 1):
+                try:
+                    # ID do episódio
+                    ep_id = ep.get('id', '')
                     
-                    for ep in episodes:
-                        try:
-                            # ID do episódio
-                            ep_id = ep.get('id', '')
-                            
-                            # Título do episódio
-                            title_tag = ep.find('h5', class_='fw-bold')
-                            ep_title = title_tag.get_text(strip=True) if title_tag else "Sem título"
-                            
-                            # Duração
-                            duration_tag = ep.find('p', class_='small', string=lambda x: x and 'Duração' in x)
-                            duration = duration_tag.get_text(strip=True).replace('Duração:', '').strip() if duration_tag else "N/A"
-                            
-                            # Data de publicação
-                            pub_date_tag = ep.find('p', class_='small', string=lambda x: x and 'Publicado' in x)
-                            pub_date = pub_date_tag.get_text(strip=True).replace('Publicado:', '').strip() if pub_date_tag else "N/A"
-                            
-                            # Botão de assistir
-                            watch_btn = ep.find('a', class_='btn free')
-                            player_url = watch_btn.get('href') if watch_btn else None
-                            
-                            episode_data = {
-                                'episode_id': ep_id,
-                                'season': season_name,
-                                'season_id': season_id,
-                                'title': ep_title,
-                                'duration': duration,
-                                'published_date': pub_date,
-                                'player_url': player_url,
-                                'video_url': None
-                            }
-                            
-                            # Se tiver player_url e usuário quiser, extrai o vídeo
-                            if player_url:
-                                print(f"             🎬 {ep_title}: {player_url[:60]}...")
-                            
-                            all_episodes.append(episode_data)
-                            
-                        except Exception as e:
-                            print(f"             ✗ Erro ao processar episódio: {e}")
-                            continue
+                    # Informações do episódio
+                    info_div = ep.find('div', class_='info')
+                    
+                    if not info_div:
+                        continue
+                    
+                    # Título do episódio
+                    title_tag = info_div.find('h5', class_='fw-bold')
+                    ep_title = title_tag.get_text(strip=True) if title_tag else f"Episódio {idx}"
+                    
+                    # Duração
+                    duration_tags = info_div.find_all('p', class_='small')
+                    duration = "N/A"
+                    pub_date = "N/A"
+                    
+                    for tag in duration_tags:
+                        text = tag.get_text(strip=True)
+                        if 'Duração:' in text:
+                            duration = text.replace('Duração:', '').strip()
+                        elif 'Publicado:' in text:
+                            pub_date = text.replace('Publicado:', '').strip()
+                    
+                    # Botão de assistir - procura dentro da div.buttons
+                    buttons_div = ep.find('div', class_='buttons')
+                    player_url = None
+                    
+                    if buttons_div:
+                        # Procura pelo link <a> com href
+                        watch_link_tag = buttons_div.find('a', href=True)
+                        if watch_link_tag:
+                            player_url = watch_link_tag.get('href')
+                            # Remove o '>' no final se existir (bug do HTML)
+                            if player_url and player_url.endswith('>'):
+                                player_url = player_url[:-1]
+                    
+                    episode_data = {
+                        'episode_id': ep_id,
+                        'season': season_name,
+                        'season_id': season_id,
+                        'title': ep_title,
+                        'duration': duration,
+                        'published_date': pub_date,
+                        'player_url': player_url,
+                        'video_url': None
+                    }
+                    
+                    if player_url:
+                        print(f"             {idx}. {ep_title}: {player_url[:60]}...")
+                    else:
+                        print(f"             {idx}. {ep_title}: ⚠ sem player_url")
+                    
+                    all_episodes.append(episode_data)
+                    
+                except Exception as e:
+                    print(f"             ✗ Erro ao processar episódio {idx}: {e}")
+                    continue
             
             print(f"       ✓ Total de episódios extraídos: {len(all_episodes)}")
             return all_episodes
