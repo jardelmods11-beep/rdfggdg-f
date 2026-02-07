@@ -1021,17 +1021,6 @@ def main():
         # Formato antigo (lista simples)
         most_watched = result
         
-        # Salva resultados organizados
-        output = {
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'summary': summary,
-            'movies': most_watched_movies,
-            'series': most_watched_series
-        }
-    else:
-        # Formato antigo (lista simples)
-        most_watched = result
-        
         if most_watched:
             print("\n" + "="*70)
             print(f"RESULTADOS: {len(most_watched)} FILMES")
