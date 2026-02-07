@@ -214,30 +214,56 @@ class CNVSWebScraper:
                         'imdb': imdb,
                         'image_url': image_url,
                         'player_url': None,
-                        'video_url': None
+                        'video_url': None,
+                        'is_series': 'Temporada' in duration_or_seasons,
+                        'episodes': []
                     }
                     
                     print(f"  {idx}. {title}")
                     
+                    # Detecta se é série ou filme
+                    is_series = 'Temporada' in duration_or_seasons
+                    
                     # Se solicitado, extrai URLs do player e vídeo
                     if get_video_urls and watch_link:
-                        print(f"     🎬 Extraindo vídeo...")
-                        try:
-                            player_url = self.get_player_url(watch_link)
-                            movie_data['player_url'] = player_url
-                            
-                            if player_url:
-                                print(f"     ✓ Player: {player_url[:60]}...")
-                                video_url = self.get_video_mp4_url(player_url)
-                                movie_data['video_url'] = video_url
-                                if video_url:
-                                    print(f"     ✓ Vídeo: {video_url[:80]}...")
+                        if is_series:
+                            print(f"     📺 Série detectada - extraindo episódios...")
+                            try:
+                                episodes = self.get_series_episodes(watch_link)
+                                movie_data['episodes'] = episodes
+                                
+                                # Opcionalmente, extrai URLs de vídeo dos episódios
+                                if episodes:
+                                    print(f"     🎬 Extraindo URLs de vídeo dos episódios...")
+                                    for ep in episodes[:3]:  # Primeiros 3 episódios como exemplo
+                                        if ep.get('player_url'):
+                                            try:
+                                                video_url = self.get_video_mp4_url(ep['player_url'])
+                                                ep['video_url'] = video_url
+                                                if video_url:
+                                                    print(f"        ✓ {ep['title']}: {video_url[:60]}...")
+                                            except Exception as e:
+                                                print(f"        ✗ Erro: {e}")
+                            except Exception as e:
+                                print(f"     ✗ Erro ao extrair episódios: {e}")
+                        else:
+                            print(f"     🎬 Filme detectado - extraindo vídeo...")
+                            try:
+                                player_url = self.get_player_url(watch_link)
+                                movie_data['player_url'] = player_url
+                                
+                                if player_url:
+                                    print(f"     ✓ Player: {player_url[:60]}...")
+                                    video_url = self.get_video_mp4_url(player_url)
+                                    movie_data['video_url'] = video_url
+                                    if video_url:
+                                        print(f"     ✓ Vídeo: {video_url[:80]}...")
+                                    else:
+                                        print(f"     ⚠ URL do vídeo não encontrada")
                                 else:
-                                    print(f"     ⚠ URL do vídeo não encontrada")
-                            else:
-                                print(f"     ⚠ URL do player não encontrada")
-                        except Exception as e:
-                            print(f"     ✗ Erro ao extrair vídeo: {e}")
+                                    print(f"     ⚠ URL do player não encontrada")
+                            except Exception as e:
+                                print(f"     ✗ Erro ao extrair vídeo: {e}")
                     
                     movies.append(movie_data)
                     
@@ -319,28 +345,55 @@ class CNVSWebScraper:
                         'imdb': imdb,
                         'image_url': image_url,
                         'player_url': None,
-                        'video_url': None
+                        'video_url': None,
+                        'is_series': 'Temporada' in duration_or_seasons,
+                        'episodes': []
                     }
                     
                     print(f"  {idx}. {title}")
                     
+                    # Detecta se é série ou filme
+                    is_series = 'Temporada' in duration_or_seasons
+                    
                     if get_video_urls and watch_link:
-                        print(f"     🎬 Extraindo vídeo...")
-                        try:
-                            player_url = self.get_player_url(watch_link)
-                            movie_data['player_url'] = player_url
-                            
-                            if player_url:
-                                video_url = self.get_video_mp4_url(player_url)
-                                movie_data['video_url'] = video_url
-                                if video_url:
-                                    print(f"     ✓ Vídeo extraído")
+                        if is_series:
+                            print(f"     📺 Série detectada - extraindo episódios...")
+                            try:
+                                episodes = self.get_series_episodes(watch_link)
+                                movie_data['episodes'] = episodes
+                                
+                                # Opcionalmente, extrai URLs de vídeo dos primeiros episódios
+                                if episodes:
+                                    print(f"     🎬 Extraindo URLs de vídeo dos primeiros episódios...")
+                                    for ep in episodes[:3]:  # Primeiros 3 como exemplo
+                                        if ep.get('player_url'):
+                                            try:
+                                                video_url = self.get_video_mp4_url(ep['player_url'])
+                                                ep['video_url'] = video_url
+                                                if video_url:
+                                                    print(f"        ✓ {ep['title']}: {video_url[:60]}...")
+                                            except Exception as e:
+                                                print(f"        ✗ Erro: {e}")
+                            except Exception as e:
+                                print(f"     ✗ Erro ao extrair episódios: {e}")
+                        else:
+                            print(f"     🎬 Filme detectado - extraindo vídeo...")
+                            try:
+                                player_url = self.get_player_url(watch_link)
+                                movie_data['player_url'] = player_url
+                                
+                                if player_url:
+                                    print(f"     ✓ Player: {player_url[:60]}...")
+                                    video_url = self.get_video_mp4_url(player_url)
+                                    movie_data['video_url'] = video_url
+                                    if video_url:
+                                        print(f"     ✓ Vídeo: {video_url[:80]}...")
+                                    else:
+                                        print(f"     ⚠ Vídeo não encontrado")
                                 else:
-                                    print(f"     ⚠ Vídeo não encontrado")
-                            else:
-                                print(f"     ⚠ Player não encontrado")
-                        except Exception as e:
-                            print(f"     ✗ Erro: {e}")
+                                    print(f"     ⚠ Player não encontrado")
+                            except Exception as e:
+                                print(f"     ✗ Erro: {e}")
                     
                     movies.append(movie_data)
                     
@@ -604,6 +657,97 @@ class CNVSWebScraper:
             import traceback
             traceback.print_exc()
             return None
+    
+    def get_series_episodes(self, watch_link):
+        """Extrai todos os episódios de todas as temporadas de uma série"""
+        self.keep_alive()
+        
+        try:
+            if not watch_link.startswith('http'):
+                watch_link = urljoin(self.base_url, watch_link)
+            
+            print(f"       📺 Acessando página da série: {watch_link}")
+            response = self.session.get(watch_link)
+            self.last_activity = time.time()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Procura o select de temporadas
+            seasons_select = soup.find('select', id='seasons-view')
+            
+            if not seasons_select:
+                print(f"       ⚠ Select de temporadas não encontrado")
+                return []
+            
+            # Pega todas as temporadas
+            seasons = seasons_select.find_all('option')
+            print(f"       📊 Encontradas {len(seasons)} temporadas")
+            
+            all_episodes = []
+            
+            for season in seasons:
+                season_id = season.get('value')
+                season_name = season.get_text(strip=True)
+                
+                print(f"       📂 Processando {season_name} (ID: {season_id})...")
+                
+                # Procura os episódios dessa temporada no HTML atual
+                # ou faz requisição AJAX se necessário
+                episodes_container = soup.find('div', id='episodes-view')
+                
+                if episodes_container:
+                    episodes = episodes_container.find_all('div', class_='ep')
+                    print(f"          📊 Encontrados {len(episodes)} episódios")
+                    
+                    for ep in episodes:
+                        try:
+                            # ID do episódio
+                            ep_id = ep.get('id', '')
+                            
+                            # Título do episódio
+                            title_tag = ep.find('h5', class_='fw-bold')
+                            ep_title = title_tag.get_text(strip=True) if title_tag else "Sem título"
+                            
+                            # Duração
+                            duration_tag = ep.find('p', class_='small', string=lambda x: x and 'Duração' in x)
+                            duration = duration_tag.get_text(strip=True).replace('Duração:', '').strip() if duration_tag else "N/A"
+                            
+                            # Data de publicação
+                            pub_date_tag = ep.find('p', class_='small', string=lambda x: x and 'Publicado' in x)
+                            pub_date = pub_date_tag.get_text(strip=True).replace('Publicado:', '').strip() if pub_date_tag else "N/A"
+                            
+                            # Botão de assistir
+                            watch_btn = ep.find('a', class_='btn free')
+                            player_url = watch_btn.get('href') if watch_btn else None
+                            
+                            episode_data = {
+                                'episode_id': ep_id,
+                                'season': season_name,
+                                'season_id': season_id,
+                                'title': ep_title,
+                                'duration': duration,
+                                'published_date': pub_date,
+                                'player_url': player_url,
+                                'video_url': None
+                            }
+                            
+                            # Se tiver player_url e usuário quiser, extrai o vídeo
+                            if player_url:
+                                print(f"             🎬 {ep_title}: {player_url[:60]}...")
+                            
+                            all_episodes.append(episode_data)
+                            
+                        except Exception as e:
+                            print(f"             ✗ Erro ao processar episódio: {e}")
+                            continue
+            
+            print(f"       ✓ Total de episódios extraídos: {len(all_episodes)}")
+            return all_episodes
+            
+        except Exception as e:
+            print(f"       ✗ Erro ao extrair episódios: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
     
     def get_video_mp4_url(self, player_url):
         """Extrai a URL do vídeo .mp4 do player"""
