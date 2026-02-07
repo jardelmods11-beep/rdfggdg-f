@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request
-from cnvsweb_scraper import CNVSWebScraper
+from cnvsweb_scraper_complete_fixed import CNVSWebScraper
 import threading
 import time
 import os
@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 # Token de acesso (pode vir de variável de ambiente)
-TOKEN = os.environ.get('TOKEN', '2G4B7UIZ')
+TOKEN = os.environ.get('TOKEN', '8KSVCCH0')
 
 # Inicializa o scraper globalmente
 scraper = None
@@ -62,44 +62,51 @@ def home():
     return jsonify({
         'status': 'online',
         'scraper_ready': scraper_ready,
-        'message': 'CNVSWeb Scraper API - Versão Corrigida',
-        'version': '2.1.0',
+        'message': 'CNVSWeb Scraper API - Versão Organizada',
+        'version': '3.0.0',
         'endpoints': {
             'most_watched': {
                 'url': '/api/most-watched',
                 'method': 'GET',
-                'description': 'Filmes mais assistidos do dia (com vídeos)',
+                'description': 'Filmes/séries mais assistidos do dia (ORGANIZADO)',
                 'params': {
-                    'limit': 'Opcional - Número máximo de resultados (padrão: todos)'
+                    'limit': 'Opcional - Número máximo de resultados (padrão: todos)',
+                    'max_episodes': 'Opcional - Máximo de episódios por série (padrão: 5)',
+                    'organize': 'Opcional - true/false (padrão: true)'
                 },
-                'example': '/api/most-watched?limit=10'
+                'example': '/api/most-watched?limit=10&max_episodes=3'
             },
             'search': {
                 'url': '/api/search?q=query',
                 'method': 'GET',
-                'description': 'Busca filmes com URLs de vídeo',
+                'description': 'Busca filmes/séries com URLs de vídeo (ORGANIZADO)',
                 'params': {
                     'q': 'Obrigatório - Termo de busca',
-                    'limit': 'Opcional - Número máximo de resultados'
+                    'limit': 'Opcional - Número máximo de resultados',
+                    'max_episodes': 'Opcional - Máximo de episódios por série (padrão: 5)',
+                    'organize': 'Opcional - true/false (padrão: true)'
                 },
-                'example': '/api/search?q=avengers&limit=10'
+                'example': '/api/search?q=avengers&limit=10&max_episodes=3'
             },
             'search_fast': {
                 'url': '/api/search-fast?q=query',
                 'method': 'GET',
-                'description': 'Busca rápida sem URLs de vídeo',
+                'description': 'Busca rápida sem URLs de vídeo (ORGANIZADO)',
                 'params': {
                     'q': 'Obrigatório - Termo de busca',
-                    'limit': 'Opcional - Número máximo de resultados'
+                    'limit': 'Opcional - Número máximo de resultados',
+                    'organize': 'Opcional - true/false (padrão: true)'
                 },
                 'example': '/api/search-fast?q=batman&limit=5'
             }
         },
         'notes': [
-            'A primeira requisição após inatividade pode demorar ~30s (Render free tier)',
+            'NOVA VERSÃO: Dados organizados em {movies: [], series: []}',
+            'Campo "type" indica se é "movie" ou "series"',
+            'Parâmetro max_episodes limita episódios por série',
+            'organize=false retorna formato antigo (lista simples)',
             'URLs de vídeo são válidas por tempo limitado',
-            'A sessão é mantida automaticamente a cada 3 minutos',
-            'VERSÃO CORRIGIDA: melhor extração de dados e debugging'
+            'A sessão é mantida automaticamente a cada 3 minutos'
         ]
     })
 
@@ -114,7 +121,7 @@ def health():
 
 @app.route('/api/most-watched')
 def most_watched():
-    """Retorna os filmes mais assistidos do dia COM URLs de vídeo"""
+    """Retorna os filmes/séries mais assistidos do dia COM URLs de vídeo - ORGANIZADO"""
     if not scraper_ready:
         return jsonify({
             'success': False,
@@ -123,23 +130,49 @@ def most_watched():
     
     try:
         limit = request.args.get('limit', type=int)
+        max_episodes = request.args.get('max_episodes', default=5, type=int)
+        organize = request.args.get('organize', default='true', type=str).lower() == 'true'
         
         print("\n" + "="*50)
         print("Extraindo filmes mais assistidos do dia...")
         print("="*50 + "\n")
         
-        movies = scraper.get_most_watched_today(get_video_urls=True)
+        result = scraper.get_most_watched_today(
+            get_video_urls=True,
+            max_episodes_per_series=max_episodes,
+            organize_output=organize
+        )
         
-        # Aplica limite se especificado
-        if limit and limit > 0:
-            movies = movies[:limit]
-        
-        return jsonify({
-            'success': True,
-            'count': len(movies),
-            'total_found': len(movies),
-            'data': movies
-        })
+        # Se retornou dados organizados
+        if isinstance(result, dict) and 'movies' in result:
+            movies = result['movies']
+            series = result['series']
+            
+            # Aplica limite se especificado
+            if limit and limit > 0:
+                movies = movies[:limit]
+                series = series[:limit]
+            
+            return jsonify({
+                'success': True,
+                'summary': {
+                    'total': result['summary']['total'],
+                    'movies': len(movies),
+                    'series': len(series)
+                },
+                'movies': movies,
+                'series': series
+            })
+        else:
+            # Formato antigo (lista simples)
+            if limit and limit > 0:
+                result = result[:limit]
+            
+            return jsonify({
+                'success': True,
+                'count': len(result),
+                'data': result
+            })
     except Exception as e:
         print(f"Erro em /api/most-watched: {e}")
         import traceback
@@ -151,7 +184,7 @@ def most_watched():
 
 @app.route('/api/search')
 def search():
-    """Busca filmes por query COM URLs de vídeo"""
+    """Busca filmes/séries por query COM URLs de vídeo - ORGANIZADO"""
     if not scraper_ready:
         return jsonify({
             'success': False,
@@ -160,6 +193,8 @@ def search():
     
     query = request.args.get('q', '')
     limit = request.args.get('limit', type=int)
+    max_episodes = request.args.get('max_episodes', default=5, type=int)
+    organize = request.args.get('organize', default='true', type=str).lower() == 'true'
     
     if not query:
         return jsonify({
@@ -173,18 +208,45 @@ def search():
         print(f"Buscando: {query}")
         print("="*50 + "\n")
         
-        results = scraper.search_movies(query, get_video_urls=True)
+        result = scraper.search_movies(
+            query,
+            get_video_urls=True,
+            max_episodes_per_series=max_episodes,
+            organize_output=organize
+        )
         
-        # Aplica limite se especificado
-        if limit and limit > 0:
-            results = results[:limit]
-        
-        return jsonify({
-            'success': True,
-            'query': query,
-            'count': len(results),
-            'data': results
-        })
+        # Se retornou dados organizados
+        if isinstance(result, dict) and 'movies' in result:
+            movies = result['movies']
+            series = result['series']
+            
+            # Aplica limite se especificado
+            if limit and limit > 0:
+                movies = movies[:limit]
+                series = series[:limit]
+            
+            return jsonify({
+                'success': True,
+                'query': query,
+                'summary': {
+                    'total': result['summary']['total'],
+                    'movies': len(movies),
+                    'series': len(series)
+                },
+                'movies': movies,
+                'series': series
+            })
+        else:
+            # Formato antigo (lista simples)
+            if limit and limit > 0:
+                result = result[:limit]
+            
+            return jsonify({
+                'success': True,
+                'query': query,
+                'count': len(result),
+                'data': result
+            })
     except Exception as e:
         print(f"Erro em /api/search: {e}")
         import traceback
@@ -196,7 +258,7 @@ def search():
 
 @app.route('/api/search-fast')
 def search_fast():
-    """Busca filmes por query SEM URLs de vídeo (mais rápido)"""
+    """Busca filmes/séries por query SEM URLs de vídeo (mais rápido) - ORGANIZADO"""
     if not scraper_ready:
         return jsonify({
             'success': False,
@@ -205,6 +267,7 @@ def search_fast():
     
     query = request.args.get('q', '')
     limit = request.args.get('limit', type=int)
+    organize = request.args.get('organize', default='true', type=str).lower() == 'true'
     
     if not query:
         return jsonify({
@@ -215,18 +278,45 @@ def search_fast():
     
     try:
         print(f"\nBusca rápida: {query}")
-        results = scraper.search_movies(query, get_video_urls=False)
+        result = scraper.search_movies(
+            query,
+            get_video_urls=False,
+            max_episodes_per_series=0,
+            organize_output=organize
+        )
         
-        # Aplica limite se especificado
-        if limit and limit > 0:
-            results = results[:limit]
-        
-        return jsonify({
-            'success': True,
-            'query': query,
-            'count': len(results),
-            'data': results
-        })
+        # Se retornou dados organizados
+        if isinstance(result, dict) and 'movies' in result:
+            movies = result['movies']
+            series = result['series']
+            
+            # Aplica limite se especificado
+            if limit and limit > 0:
+                movies = movies[:limit]
+                series = series[:limit]
+            
+            return jsonify({
+                'success': True,
+                'query': query,
+                'summary': {
+                    'total': result['summary']['total'],
+                    'movies': len(movies),
+                    'series': len(series)
+                },
+                'movies': movies,
+                'series': series
+            })
+        else:
+            # Formato antigo (lista simples)
+            if limit and limit > 0:
+                result = result[:limit]
+            
+            return jsonify({
+                'success': True,
+                'query': query,
+                'count': len(result),
+                'data': result
+            })
     except Exception as e:
         print(f"Erro em /api/search-fast: {e}")
         import traceback
